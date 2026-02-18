@@ -121,6 +121,7 @@ void MainContentComponent::updateAngleDelta()
 
 void MainContentComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 {
+    // set sample rate to the sample rate of the system's audio device
     currentSampleRate = sampleRate;
     updateAngleDelta();
 }

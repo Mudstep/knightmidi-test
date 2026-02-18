@@ -37,7 +37,7 @@ private:
 
     float getWave(waveTypes waveType, double angle);
 
-    double currentSampleRate = 0.0;
+    double currentSampleRate = 44100.0; // default to 44.1khz, but JUCE replaces it with whatever the system's audio device uses
     double currentAngle = 0.0;
     double angleDelta = 0.0;
     double currentFrequency = 440.0;

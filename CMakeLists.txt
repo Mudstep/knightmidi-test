@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SimpleMIDISynth VERSION 1.0.0)
+project(knightmidi-test VERSION 1.0.0)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -9,20 +9,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JUCE)
 
-juce_add_gui_app(SimpleMIDISynth
-    PRODUCT_NAME "Simple MIDI Synth"
+juce_add_gui_app(knightmidi-test
+    PRODUCT_NAME "KnightMIDI Test"
 )
 
-target_sources(SimpleMIDISynth PRIVATE
+target_sources(knightmidi-test PRIVATE
     Main.cpp
     MainContentComponent.cpp
 )
 
-target_link_libraries(SimpleMIDISynth PRIVATE
+target_link_libraries(knightmidi-test PRIVATE
     juce::juce_audio_utils
 )
 
-target_compile_definitions(SimpleMIDISynth PRIVATE
+target_compile_definitions(knightmidi-test PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
 )
