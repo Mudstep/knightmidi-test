@@ -3,7 +3,7 @@
 class Application : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "SimpleMIDISynth"; }
+    const juce::String getApplicationName() override { return "KnightMIDI Test"; }
     const juce::String getApplicationVersion() override { return "1.0.0"; }
 
     void initialise(const juce::String&) override {
