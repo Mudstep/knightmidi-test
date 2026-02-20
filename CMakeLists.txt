@@ -14,8 +14,11 @@ juce_add_gui_app(knightmiditest
 )
 
 target_sources(knightmiditest PRIVATE
+
     Main.cpp
     MainContentComponent.cpp
+    MidiPlayer.cpp
+    PSG.cpp
 )
 
 target_link_libraries(knightmiditest PRIVATE

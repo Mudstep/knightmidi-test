@@ -4,13 +4,23 @@ MainContentComponent::MainContentComponent()
 {
     // Add and control UI stuff
     addAndMakeVisible(playButton);
-    playButton.onClick = [this] { playMidiData(); };
+    playButton.onClick = [this] {
+        psg.currentAngle = 0.0;
+        midiPlayer.playMidiData();
+    };
     
     addAndMakeVisible(stopButton);
-    stopButton.onClick = [this] { stopPlayback(); };
+    stopButton.onClick = [this] {
+        midiPlayer.stopPlayback();
+        psg.currentAngle = 0.0;
+    };
     
     addAndMakeVisible(loadButton);
-    loadButton.onClick = [this] { loadMidiFile(); };
+    loadButton.onClick = [this] {
+        midiPlayer.loadMidiFile([this](const juce::String& path) {
+            midiPathLabel.setText(path, juce::dontSendNotification);
+        });
+    };
 
     addAndMakeVisible(midiPathLabel);
 
@@ -22,11 +32,11 @@ MainContentComponent::MainContentComponent()
     waveSelector.setSelectedId(3); // default is a 50% square wave
     waveSelector.onChange = [this] {
         switch (waveSelector.getSelectedId()) {
-            case 1: currentWaveType = square_12p5; break;
-            case 2: currentWaveType = square_25; break;
-            case 3: currentWaveType = square_50; break;
-            case 4: currentWaveType = square_75; break;
-            case 5: currentWaveType = sine; break;
+            case 1: psg.currentWaveType = PSG::square_12p5; break;
+            case 2: psg.currentWaveType = PSG::square_25; break;
+            case 3: psg.currentWaveType = PSG::square_50; break;
+            case 4: psg.currentWaveType = PSG::square_75; break;
+            case 5: psg.currentWaveType = PSG::sine; break;
         }
     };
     addAndMakeVisible(waveSelector);
@@ -35,127 +45,20 @@ MainContentComponent::MainContentComponent()
     setAudioChannels(0, 2);
 }
 
-MainContentComponent::~MainContentComponent()
-{
+MainContentComponent::~MainContentComponent() {
     shutdownAudio();
 }
 
-void MainContentComponent::loadMidiFile()
-{
-    // open up file selection dialogue
-    midiFileChooser = std::make_unique<juce::FileChooser>(
-        "Select a MIDI file...",
-        juce::File{},
-        "*.mid;*.midi"
-    );
-
-    midiFileChooser->launchAsync(juce::FileBrowserComponent::openMode, [this](const juce::FileChooser& fc) {
-        auto file = fc.getResult();
-        if (!file.existsAsFile())
-            return;
-        
-        juce::FileInputStream inputStream(file);
-        if (!inputStream.openedOk())
-            return;
-
-        midiFile.readFrom(inputStream); // load the MIDI data into a MIDI file object
-
-        timeFormat = midiFile.getTimeFormat();
-
-        // check for initial tempo value
-        for (int t = 0; t < midiFile.getNumTracks(); ++t) {
-            auto const* track = midiFile.getTrack(t);
-            for (int i = 0; i < track->getNumEvents(); ++i) {
-                auto& msg = track->getEventPointer(i)->message;
-                // this entire block is temporary until proper tempo changing is implemented
-                if (msg.isTempoMetaEvent()) {
-                    currentTempo = msg.getTempoSecondsPerQuarterNote() * 1000000.0;
-                    break;
-                }
-            }
-        }
-
-        // check for first track with note data
-        bool fileHasNoteData = false;
-        for (int t = 0; t < midiFile.getNumTracks() && !fileHasNoteData; ++t) {
-            auto const* track = midiFile.getTrack(t);
-            for (int i = 0; i < track->getNumEvents(); ++i) {
-                auto& msg = track->getEventPointer(i)->message;
-                // check if current indexed track has note data, if it does, it's the first track with note data and the only one that'll be played
-                if (msg.isNoteOn()) {
-                    midiTrack = *track;
-                    fileHasNoteData = true;
-                    break;
-                }
-            }
-        }
-
-        if (!fileHasNoteData)
-            return;
-
-        stopPlayback();
-        updateSamplesPerTick();
-        midiPathLabel.setText(file.getFullPathName(), juce::dontSendNotification); // update path label
-    });
-}
-
-void MainContentComponent::playMidiData() {
-    // if there's any actual midi data, reset instance variables and start playing it
-    if (midiTrack.getNumEvents() > 0) {
-        currentEventIndex = 0;
-        ticksProcessed = 0.0;
-        currentAngle = 0.0;
-        noteOn = false;
-        isPlaying = true;
-    }
-}
-
-void MainContentComponent::stopPlayback() {
-    // reset instance variables and stop playback
-    currentEventIndex = 0;
-    ticksProcessed = 0.0;
-    currentAngle = 0.0;
-    noteOn = false;
-    isPlaying = false;
-}
-
-float MainContentComponent::getWave(waveTypes waveType, double angle) {
-    // return float representation of a wave at a given angle
-    switch (waveType) {
-        case square_12p5:
-            return std::fmod(angle, juce::MathConstants<double>::twoPi) > 1.75f * juce::MathConstants<double>::pi ? 1.0f : -1.0f; // 12.5% up, 87.5% down
-        case square_25:
-            return std::fmod(angle, juce::MathConstants<double>::twoPi) > 1.5f * juce::MathConstants<double>::pi ? 1.0f : -1.0f; // 25% up, 75% down
-        default: // default to 50% square
-        case square_50:
-            return std::fmod(angle, juce::MathConstants<double>::twoPi) > juce::MathConstants<double>::pi ? 1.0f : -1.0f; // 50% up, 50% down
-        case square_75:
-            return std::fmod(angle, juce::MathConstants<double>::twoPi) > 0.5f * juce::MathConstants<double>::pi ? 1.0f : -1.0f; // 75% up, 25% down
-        case sine:
-            return std::sin(angle);
-    }
-}
-
-void MainContentComponent::updateAngleDelta()
-{
-    auto cyclesPerSample = currentFrequency / currentSampleRate;
-    angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
-}
-
-void MainContentComponent::updateSamplesPerTick() {
-    samplesPerTick = (currentTempo / 1000000.0 / timeFormat) * currentSampleRate;
-}
-
-void MainContentComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
-{
+void MainContentComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate) {
     // set sample rate to the sample rate of the system's audio device
-    currentSampleRate = sampleRate;
-    updateAngleDelta();
-    updateSamplesPerTick();
+    psg.currentSampleRate = sampleRate;
+    psg.updateAngleDelta();
+
+    midiPlayer.currentSampleRate = sampleRate;
+    midiPlayer.updateSamplesPerTick();
 }
 
-void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
-{
+void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) {
     auto level = 0.125f;
     auto* leftBuffer = bufferToFill.buffer->getWritePointer (0, bufferToFill.startSample);
     auto* rightBuffer = bufferToFill.buffer->getWritePointer (1, bufferToFill.startSample);
@@ -163,46 +66,46 @@ void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo&
     juce::ScopedLock sl(midiLock); // prevent modification of MIDI data while it's being read (I think?)
     
     for (auto sample = 0; sample < bufferToFill.numSamples; ++sample) {
-        if (isPlaying && currentSampleRate > 0) {
-            ticksProcessed += 1.0 / samplesPerTick;
+        if (midiPlayer.isPlaying && psg.currentSampleRate > 0) {
+            midiPlayer.ticksProcessed += 1.0 / midiPlayer.samplesPerTick;
 
-            while (currentEventIndex < midiTrack.getNumEvents()) {
-                auto* event = midiTrack.getEventPointer(currentEventIndex);
-                if (event->message.getTimeStamp() > ticksProcessed)
+            while (midiPlayer.currentEventIndex < midiPlayer.midiTrack.getNumEvents()) {
+                auto* event = midiPlayer.midiTrack.getEventPointer(midiPlayer.currentEventIndex);
+                if (event->message.getTimeStamp() > midiPlayer.ticksProcessed)
                     break;
 
                 auto& msg = event->message;
 
                 // if current MIDI event is a note on event, store the frequency of the currently playing note
                 if (msg.isNoteOn()) {
-                    currentFrequency = juce::MidiMessage::getMidiNoteInHertz(msg.getNoteNumber()); // <- thank god for this function lmao I was gonna make a table with all the notes and frequencies
-                    updateAngleDelta();
-                    noteOn = true;
+                    psg.currentFrequency = juce::MidiMessage::getMidiNoteInHertz(msg.getNoteNumber()); // <- thank god for this function lmao I was gonna make a table with all the notes and frequencies
+                    psg.updateAngleDelta();
+                    midiPlayer.noteOn = true;
                 }
                 
                 // if it's a note off, then turn off note on flag
                 else if (msg.isNoteOff()) {
-                    noteOn = false;
+                    midiPlayer.noteOn = false;
                 }
 
-                currentEventIndex++;
+                midiPlayer.currentEventIndex++;
             }
 
             // if there's no events left, stop playing
-            if (currentEventIndex >= midiTrack.getNumEvents()) {
-                isPlaying = false;
+            if (midiPlayer.currentEventIndex >= midiPlayer.midiTrack.getNumEvents()) {
+                midiPlayer.isPlaying = false;
             }
         }
 
         float currentSample = 0.0f;
 
-        if (noteOn) {
+        if (midiPlayer.noteOn) {
             // generate sample from current waveform and volume
-            currentSample = getWave(currentWaveType, currentAngle) * level;
-            currentAngle += angleDelta;
+            currentSample = psg.getWave(psg.currentWaveType, psg.currentAngle) * level;
+            psg.currentAngle += psg.angleDelta;
 
             // reset radian cycle if it grows too big
-            if (currentAngle > juce::MathConstants<double>::twoPi) currentAngle -= juce::MathConstants<double>::twoPi;
+            if (psg.currentAngle > juce::MathConstants<double>::twoPi) psg.currentAngle -= juce::MathConstants<double>::twoPi;
         }
 
         // write sample to output buffer
@@ -211,13 +114,11 @@ void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo&
     }
 }
 
-void MainContentComponent::releaseResources()
-{
+void MainContentComponent::releaseResources() {
     juce::Logger::getCurrentLogger()->writeToLog ("Releasing audio resources");
 }
 
-void MainContentComponent::resized()
-{
+void MainContentComponent::resized() {
     playButton.setBounds(16, 40, 160, 40);
     stopButton.setBounds(playButton.getRight() + 16, 40, 160, 40);
     loadButton.setBounds(16, 80, 160, 40);
