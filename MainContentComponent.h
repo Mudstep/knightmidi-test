@@ -15,6 +15,7 @@ public:
 private:
     // Engine stuff
     void updateAngleDelta();
+    void updateSamplesPerTick();
     void loadMidiFile();
     void playMidiData();
     void stopPlayback();
@@ -41,7 +42,6 @@ private:
     double currentAngle = 0.0;
     double angleDelta = 0.0;
     double currentFrequency = 440.0;
-    double targetFrequency = 440.0;
     waveTypes currentWaveType = square_50;
 
     // MIDI stuff
@@ -49,7 +49,10 @@ private:
     juce::MidiFile midiFile;
     juce::MidiMessageSequence midiTrack;
     int currentEventIndex = 0;
-    double samplesProcessed = 0.0;
+    double ticksProcessed = 0.0;
+    double samplesPerTick = 0.0;
+    int timeFormat = 0;
+    double currentTempo = 500000.0; // microseconds per beat, default to 120 BPM
     bool isPlaying = false;
     bool noteOn = false;
 

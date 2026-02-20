@@ -53,26 +53,49 @@ void MainContentComponent::loadMidiFile()
         auto file = fc.getResult();
         if (!file.existsAsFile())
             return;
-
+        
         juce::FileInputStream inputStream(file);
         if (!inputStream.openedOk())
             return;
 
-        juce::ScopedLock sl(midiLock); // prevents playing back audio while MIDI data is being modified  (I think?)
-
         midiFile.readFrom(inputStream); // load the MIDI data into a MIDI file object
-        midiFile.convertTimestampTicksToSeconds(); // convert ticks to seconds, although idk if this'll be a good idea in the long run and if we'll wanna deal directly with ticks
 
+        timeFormat = midiFile.getTimeFormat();
+
+        // check for initial tempo value
         for (int t = 0; t < midiFile.getNumTracks(); ++t) {
-            midiTrack = *midiFile.getTrack(t);
-            for (int i = 0; i < midiTrack.getNumEvents(); ++i) {
-                if (midiTrack.getEventPointer(i)->message.isNoteOn()) {
-                    midiPathLabel.setText(file.getFullPathName(), juce::dontSendNotification); // update path label
-                    stopPlayback(); // resets instance variables and stops playback if anything was already playing
-                    return;
+            auto const* track = midiFile.getTrack(t);
+            for (int i = 0; i < track->getNumEvents(); ++i) {
+                auto& msg = track->getEventPointer(i)->message;
+                // this entire block is temporary until proper tempo changing is implemented
+                if (msg.isTempoMetaEvent()) {
+                    currentTempo = msg.getTempoSecondsPerQuarterNote() * 1000000.0;
+                    break;
                 }
             }
-        } 
+        }
+
+        // check for first track with note data
+        bool fileHasNoteData = false;
+        for (int t = 0; t < midiFile.getNumTracks() && !fileHasNoteData; ++t) {
+            auto const* track = midiFile.getTrack(t);
+            for (int i = 0; i < track->getNumEvents(); ++i) {
+                auto& msg = track->getEventPointer(i)->message;
+                // check if current indexed track has note data, if it does, it's the first track with note data and the only one that'll be played
+                if (msg.isNoteOn()) {
+                    midiTrack = *track;
+                    fileHasNoteData = true;
+                    break;
+                }
+            }
+        }
+
+        if (!fileHasNoteData)
+            return;
+
+        stopPlayback();
+        updateSamplesPerTick();
+        midiPathLabel.setText(file.getFullPathName(), juce::dontSendNotification); // update path label
     });
 }
 
@@ -80,7 +103,7 @@ void MainContentComponent::playMidiData() {
     // if there's any actual midi data, reset instance variables and start playing it
     if (midiTrack.getNumEvents() > 0) {
         currentEventIndex = 0;
-        samplesProcessed = 0.0;
+        ticksProcessed = 0.0;
         currentAngle = 0.0;
         noteOn = false;
         isPlaying = true;
@@ -90,7 +113,7 @@ void MainContentComponent::playMidiData() {
 void MainContentComponent::stopPlayback() {
     // reset instance variables and stop playback
     currentEventIndex = 0;
-    samplesProcessed = 0.0;
+    ticksProcessed = 0.0;
     currentAngle = 0.0;
     noteOn = false;
     isPlaying = false;
@@ -119,11 +142,16 @@ void MainContentComponent::updateAngleDelta()
     angleDelta = cyclesPerSample * 2.0 * juce::MathConstants<double>::pi;
 }
 
+void MainContentComponent::updateSamplesPerTick() {
+    samplesPerTick = (currentTempo / 1000000.0 / timeFormat) * currentSampleRate;
+}
+
 void MainContentComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
 {
     // set sample rate to the sample rate of the system's audio device
     currentSampleRate = sampleRate;
     updateAngleDelta();
+    updateSamplesPerTick();
 }
 
 void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
@@ -136,11 +164,11 @@ void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo&
     
     for (auto sample = 0; sample < bufferToFill.numSamples; ++sample) {
         if (isPlaying && currentSampleRate > 0) {
-            double currentTime = samplesProcessed / currentSampleRate;
+            ticksProcessed += 1.0 / samplesPerTick;
 
             while (currentEventIndex < midiTrack.getNumEvents()) {
                 auto* event = midiTrack.getEventPointer(currentEventIndex);
-                if (event->message.getTimeStamp() > currentTime)
+                if (event->message.getTimeStamp() > ticksProcessed)
                     break;
 
                 auto& msg = event->message;
@@ -164,8 +192,6 @@ void MainContentComponent::getNextAudioBlock(const juce::AudioSourceChannelInfo&
             if (currentEventIndex >= midiTrack.getNumEvents()) {
                 isPlaying = false;
             }
-
-            samplesProcessed++;
         }
 
         float currentSample = 0.0f;
@@ -189,7 +215,6 @@ void MainContentComponent::releaseResources()
 {
     juce::Logger::getCurrentLogger()->writeToLog ("Releasing audio resources");
 }
-
 
 void MainContentComponent::resized()
 {
