@@ -13,7 +13,7 @@ juce_add_gui_app(knightmiditest
     PRODUCT_NAME "KnightMIDI Test"
 )
 
-target_sources(knightmidi-test PRIVATE
+target_sources(knightmiditest PRIVATE
     Main.cpp
     MainContentComponent.cpp
 )
